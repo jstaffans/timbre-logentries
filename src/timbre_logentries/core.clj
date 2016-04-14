@@ -39,18 +39,27 @@
     (catch Exception e
       (timbre/error "Could not publish logs to Logentries:" e))))
 
+(def raw-output
+  "Sends raw output to Logentries. Useful for e.g. JSON logging."
+  (fn [data]
+    (let [args @(:vargs_ data)]
+      (assert (= 1 (count args)))
+      (first args))))
+
+(def default-output-no-timestamp
+  "The default output function, minus timestamp."
+  (fn [data]
+    (timbre/default-output-fn (assoc data :timestamp_ (delay "")))))
+
 (defn logentries-appender
-  [{:keys [token hostname port] :or {hostname "data.logentries.com" port 514}}]
+  [{:keys [token hostname port output-fn] :or {hostname "data.logentries.com" port 514 output-fn default-output-no-timestamp}}]
   {:pre [(not (nil? token))]}
   (let [buffer  (java.nio.ByteBuffer/allocate 4096)
         channel (.getChannel (connect hostname port))]
     {:enabled?   true
      :async      true
      :rate-limit nil
-
-     ;; no timestamp, logentries prepends one
-     :output-fn  (fn [data] (timbre/default-output-fn (assoc data :timestamp_ (delay ""))))
-
+     :output-fn  output-fn
      :fn         (fn [data]
                     (let [{:keys [output-fn]} data
                           output-str          (output-fn data)]
@@ -61,7 +70,7 @@
 (comment
   (taoensso.timbre/merge-config!
    {:level :debug
-    :appenders {:logentries (logentries-appender {:token "***"})}})
-
-  (taoensso.timbre/info "Sed diam. In id erat non orci commodo lobortis.")
+    :appenders {:logentries (logentries-appender {:token "***"
+                                                  :output-fn raw-output})}})
+  (taoensso.timbre/info "{\"foo\": \"bar\"}")
   )
