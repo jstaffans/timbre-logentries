@@ -5,37 +5,34 @@
 ;; Based on the Logentries java.util.logging appender:
 ;; https://github.com/logentries/le_java/blob/master/src/main/java/com/logentries/jul/LogentriesHandler.java
 
-(def ^:dynamic *le-conn* nil)
+(def ^:private le-conn (atom nil))
 
-(def le-conn-retries (atom 0))
+(def ^:private space (byte \ ))
 
-(def space (byte \ ))
-
-(def newline (byte-array [(byte 0x0D) (byte 0x0A)]))
+(def ^:private newline (byte-array [(byte 0x0D) (byte 0x0A)]))
 
 (defn- connect
   "Connect to Logentries."
   [hostname port]
-  (if (< @le-conn-retries 5)
-    (try
-      (alter-var-root
-       #'*le-conn*
-       (fn [_]
-         (doto (.socket (java.nio.channels.SocketChannel/open))
-           (.connect (java.net.InetSocketAddress. hostname port) 2000))))
-      (reset! le-conn-retries 0)
-      (catch java.io.IOException e
-        (swap! le-conn-retries inc)
-        (timbre/error "Could not connect to Logentries:" e)))))
+  (try
+    (doto (.socket (java.nio.channels.SocketChannel/open))
+      (.connect (java.net.InetSocketAddress. hostname port) 2000))
+    (catch java.io.IOException e
+      (timbre/error "Could not connect to Logentries:" e))))
 
 (defn- disconnect
   []
-  (when *le-conn* (.close *le-conn*))
-  (alter-var-root #'*le-conn* (fn [_] nil)))
+  (when-let [conn @le-conn]
+    (.close conn))
+  (reset! le-conn nil))
+
+(defn- ensure-connected
+  [hostname port]
+  (swap! le-conn #(or % (connect hostname port))))
 
 (defn- connected?
   []
-  (let [conn *le-conn*]
+  (let [conn @le-conn]
     (and conn (.isConnected conn))))
 
 (defn- write-to-buffer
@@ -56,7 +53,7 @@
   [buffer]
   (try
     (while (.hasRemaining buffer)
-      (.write (.getChannel *le-conn*) buffer))
+      (.write (.getChannel @le-conn) buffer))
     (catch Exception e
       (disconnect)
       (timbre/error "Could not publish logs to Logentries:" e))))
@@ -72,25 +69,22 @@
   (fn [data]
     (timbre/default-output-fn (assoc data :timestamp_ (delay "")))))
 
-(defn split-lines-with-indent
+(defn- split-lines-with-indent
   [s]
   (let [lines (str/split-lines s)
         indents (into [""] (repeat (- (count lines) 1) "... "))]
     (map str indents lines)))
 
 (defn logentries-appender
-  [{:keys [token hostname port output-fn] :or {hostname "data.logentries.com" port 514 output-fn default-output-no-timestamp}}]
+  [{:keys [token hostname port output-fn buffer-size] :or {hostname "data.logentries.com" port 514 output-fn default-output-no-timestamp buffer-size 8192}}]
   {:pre [(not (nil? token))]}
-  (let [buffer (java.nio.ByteBuffer/allocate 8192)
-        _      (connect hostname port)]
+  (let [buffer (java.nio.ByteBuffer/allocate buffer-size)]
     {:enabled?   true
      :async      true
      :rate-limit nil
      :output-fn  output-fn
      :fn         (fn [data]
-                   (when (not (connected?))
-                     (connect hostname port))
-
+                   (ensure-connected hostname port)
                    (when (connected?)
                      (let [{:keys [output-fn]} data
                            output-str          (output-fn data)]
