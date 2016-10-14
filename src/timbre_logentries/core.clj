@@ -67,7 +67,7 @@
 (def default-output-no-timestamp
   "The default output function, minus timestamp."
   (fn [data]
-    (timbre/default-output-fn (assoc data :timestamp_ (delay "")))))
+    (timbre/default-output-fn {:stacktrace-fonts {}} (assoc data :timestamp_ (delay "")))))
 
 (defn- split-lines-with-indent
   [s]
@@ -96,7 +96,6 @@
 (comment
   (taoensso.timbre/merge-config!
    {:level :debug
-    :appenders {:logentries (logentries-appender {:token "***"
-                                                  :output-fn raw-output})}})
+    :appenders {:logentries (logentries-appender {:token "***"})}})
   (taoensso.timbre/info "{\"foo\": \"bar\"}")
   (taoensso.timbre/info "foo\nbar"))
