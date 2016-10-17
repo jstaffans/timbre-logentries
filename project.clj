@@ -1,4 +1,4 @@
-(defproject timbre-logentries "0.1.5"
+(defproject timbre-logentries "0.1.6"
   :description "Logentries appender for Timbre"
   :url "https://github.com/jstaffans/timbre-logentries"
   :license {:name "Eclipse Public License"
